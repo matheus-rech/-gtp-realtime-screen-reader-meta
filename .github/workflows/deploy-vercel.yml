@@ -1,0 +1,137 @@
+name: Deploy Frontend to Vercel
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'apps/frontend/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/deploy-vercel.yml'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'apps/frontend/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'preview'
+        type: choice
+        options:
+          - preview
+          - production
+
+permissions:
+  contents: read
+  deployments: write
+  pull-requests: write
+
+jobs:
+  deploy-preview:
+    name: Deploy Preview
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'preview')
+    environment:
+      name: preview
+      url: ${{ steps.deploy.outputs.url }}
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Install Vercel CLI
+      run: npm install --global vercel@latest
+
+    - name: Pull Vercel Environment
+      run: vercel pull --yes --environment=preview --token="${{ secrets.VERCEL_TOKEN }}"
+      env:
+        VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+        VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+    - name: Build Project
+      run: vercel build --token="${{ secrets.VERCEL_TOKEN }}"
+      env:
+        VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+        VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        NEXT_PUBLIC_BACKEND_URL: ${{ secrets.PREVIEW_BACKEND_URL || secrets.BACKEND_URL }}
+
+    - name: Deploy to Vercel Preview
+      id: deploy
+      run: |
+        DEPLOYMENT_URL=$(vercel deploy --prebuilt --token="${{ secrets.VERCEL_TOKEN }}")
+        echo "url=$DEPLOYMENT_URL" >> $GITHUB_OUTPUT
+        echo "Preview deployed to: $DEPLOYMENT_URL"
+      env:
+        VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+        VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+    - name: Comment PR
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        script: |
+          const deploymentUrl = '${{ steps.deploy.outputs.url }}';
+          const backendUrl = '${{ secrets.PREVIEW_BACKEND_URL || secrets.BACKEND_URL }}';
+          await github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: `### 🚀 Frontend Preview Deployment\n\n**Frontend URL:** ${deploymentUrl}\n**Backend URL:** ${backendUrl}\n\n> Remember to deploy the backend separately if changes were made.`
+          });
+
+  deploy-production:
+    name: Deploy Production
+    runs-on: ubuntu-latest
+    if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+    environment:
+      name: production
+      url: ${{ steps.deploy.outputs.url }}
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Install Vercel CLI
+      run: npm install --global vercel@latest
+
+    - name: Pull Vercel Environment
+      run: vercel pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}"
+      env:
+        VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+        VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+    - name: Build Project
+      run: vercel build --prod --token="${{ secrets.VERCEL_TOKEN }}"
+      env:
+        VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+        VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        NEXT_PUBLIC_BACKEND_URL: ${{ secrets.PRODUCTION_BACKEND_URL || secrets.BACKEND_URL }}
+
+    - name: Deploy to Vercel Production
+      id: deploy
+      run: |
+        DEPLOYMENT_URL=$(vercel deploy --prebuilt --prod --token="${{ secrets.VERCEL_TOKEN }}")
+        echo "url=$DEPLOYMENT_URL" >> $GITHUB_OUTPUT
+        echo "Production deployed to: $DEPLOYMENT_URL"
+      env:
+        VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+        VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}

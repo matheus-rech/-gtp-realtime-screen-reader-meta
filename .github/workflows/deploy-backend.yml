@@ -1,0 +1,134 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'apps/backend/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/deploy-backend.yml'
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Deployment platform'
+        required: true
+        default: 'railway'
+        type: choice
+        options:
+          - railway
+          - fly
+          - render
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+
+permissions:
+  contents: read
+  deployments: write
+
+jobs:
+  deploy-railway:
+    name: Deploy to Railway
+    runs-on: ubuntu-latest
+    if: github.event.inputs.platform == 'railway' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    environment:
+      name: production-backend
+      url: https://${{ secrets.RAILWAY_DOMAIN }}
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Railway CLI
+      run: npm install -g @railway/cli
+
+    - name: Deploy to Railway
+      run: railway up
+      env:
+        RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+    - name: Set Environment Variables
+      run: |
+        railway vars set OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}"
+        railway vars set REDIS_URL="${{ secrets.REDIS_URL }}"
+        railway vars set FRAME_RATE_LIMIT="2"
+        railway vars set MAX_SESSIONS="100"
+        railway vars set VISUAL_MAX_RESOLUTION="1024"
+      env:
+        RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+  deploy-fly:
+    name: Deploy to Fly.io
+    runs-on: ubuntu-latest
+    if: github.event.inputs.platform == 'fly'
+    environment:
+      name: ${{ github.event.inputs.environment }}-backend
+      url: https://${{ secrets.FLY_APP_NAME }}.fly.dev
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Fly CLI
+      uses: superfly/flyctl-actions/setup-flyctl@master
+
+    - name: Deploy to Fly.io
+      run: |
+        flyctl deploy \
+          --config fly.toml \
+          --app ${{ secrets.FLY_APP_NAME }} \
+          --remote-only
+      env:
+        FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+    - name: Set Secrets
+      run: |
+        flyctl secrets set \
+          OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" \
+          REDIS_URL="${{ secrets.REDIS_URL }}" \
+          --app ${{ secrets.FLY_APP_NAME }}
+      env:
+        FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+  deploy-render:
+    name: Deploy to Render
+    runs-on: ubuntu-latest
+    if: github.event.inputs.platform == 'render'
+    environment:
+      name: ${{ github.event.inputs.environment }}-backend
+      url: https://${{ secrets.RENDER_SERVICE_NAME }}.onrender.com
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Deploy to Render
+      run: |
+        curl -X POST \
+          -H "Accept: application/json" \
+          -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+          https://api.render.com/v1/services/${{ secrets.RENDER_SERVICE_ID }}/deploys
+
+    - name: Wait for Deployment
+      run: |
+        echo "Deployment triggered. Check Render dashboard for status."
+        sleep 30
+
+    - name: Health Check
+      run: |
+        max_attempts=10
+        attempt=0
+        while [ $attempt -lt $max_attempts ]; do
+          if curl -f https://${{ secrets.RENDER_SERVICE_NAME }}.onrender.com/health; then
+            echo "Backend is healthy!"
+            exit 0
+          fi
+          echo "Waiting for backend to be ready... (attempt $((attempt+1))/$max_attempts)"
+          sleep 30
+          attempt=$((attempt+1))
+        done
+        echo "Backend health check failed after $max_attempts attempts"
+        exit 1

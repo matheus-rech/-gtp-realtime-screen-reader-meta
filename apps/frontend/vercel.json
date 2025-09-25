@@ -1,0 +1,41 @@
+{
+  "framework": "nextjs",
+  "buildCommand": "cd ../.. && npm run build --workspace frontend",
+  "installCommand": "cd ../.. && npm install",
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(self), screen-wake-lock=()"
+        }
+      ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "$NEXT_PUBLIC_BACKEND_URL/api/:path*"
+    },
+    {
+      "source": "/health",
+      "destination": "$NEXT_PUBLIC_BACKEND_URL/health"
+    }
+  ],
+  "env": {
+    "NEXT_PUBLIC_BACKEND_URL": "@backend-url"
+  }
+}

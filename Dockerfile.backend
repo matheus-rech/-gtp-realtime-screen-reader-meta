@@ -1,0 +1,63 @@
+# Railway-optimized Dockerfile for Backend (Monorepo)
+FROM node:20-alpine AS builder
+
+# Install build dependencies
+RUN apk add --no-cache python3 make g++
+
+WORKDIR /app
+
+# Copy entire monorepo structure
+COPY package*.json ./
+COPY tsconfig.base.json ./
+COPY apps/backend/package*.json ./apps/backend/
+COPY apps/backend/tsconfig.json ./apps/backend/
+COPY apps/frontend/package*.json ./apps/frontend/
+
+# Install dependencies from root (handles workspaces)
+RUN npm ci
+
+# Copy backend source code
+COPY apps/backend/src ./apps/backend/src
+
+# Build the backend
+WORKDIR /app/apps/backend
+RUN npm run build
+
+# Production stage
+FROM node:20-alpine
+
+# Install runtime dependencies for sharp
+RUN apk add --no-cache \
+    vips-dev \
+    fftw-dev \
+    gcc \
+    g++ \
+    make \
+    python3
+
+WORKDIR /app
+
+# Copy only backend package files
+COPY apps/backend/package*.json ./
+
+# Install only production dependencies
+RUN npm ci --production && \
+    npm cache clean --force
+
+# Copy built application
+COPY --from=builder /app/apps/backend/dist ./dist
+
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001
+
+USER nodejs
+
+# Railway provides PORT env variable
+EXPOSE ${PORT:-8080}
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:' + (process.env.PORT || 8080) + '/health', (res) => process.exit(res.statusCode === 200 ? 0 : 1))"
+
+CMD ["node", "dist/index.js"]

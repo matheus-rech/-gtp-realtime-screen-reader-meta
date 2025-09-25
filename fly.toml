@@ -1,0 +1,74 @@
+# Fly.io configuration for the realtime assistant backend
+app = "realtime-assistant-backend"
+primary_region = "iad" # US East (Virginia) - change as needed
+kill_signal = "SIGINT"
+kill_timeout = 5
+
+[build]
+  dockerfile = "apps/backend/Dockerfile"
+  ignorefile = ".dockerignore"
+
+[env]
+  NODE_ENV = "production"
+  FRAME_RATE_LIMIT = "2"
+  MAX_SESSIONS = "100"
+  VISUAL_MAX_RESOLUTION = "1024"
+
+[experimental]
+  auto_rollback = true
+
+[[services]]
+  http_checks = []
+  internal_port = 8080
+  protocol = "tcp"
+  script_checks = []
+
+  [services.concurrency]
+    hard_limit = 100
+    soft_limit = 50
+    type = "connections"
+
+  [[services.ports]]
+    force_https = true
+    handlers = ["http"]
+    port = 80
+
+  [[services.ports]]
+    handlers = ["tls", "http"]
+    port = 443
+
+  [[services.tcp_checks]]
+    grace_period = "1s"
+    interval = "15s"
+    restart_limit = 0
+    timeout = "2s"
+
+  [[services.http_checks]]
+    interval = "30s"
+    grace_period = "5s"
+    method = "get"
+    path = "/health"
+    protocol = "http"
+    restart_limit = 0
+    timeout = "2s"
+    tls_skip_verify = false
+    headers = {}
+
+# Scaling configuration
+[metrics]
+  port = 9091
+  path = "/metrics"
+
+# Process configuration
+[[processes]]
+  name = "app"
+  cmd = ["node", "dist/index.js"]
+
+# Persistent storage for Redis data if using embedded Redis
+[[mounts]]
+  destination = "/data"
+  source = "redis_data"
+
+[deploy]
+  strategy = "rolling"
+  max_unavailable = 0

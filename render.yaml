@@ -1,0 +1,59 @@
+# Render Blueprint for deploying the realtime assistant
+services:
+  # Backend API and WebSocket server
+  - type: web
+    name: realtime-assistant-backend
+    runtime: node
+    repo: https://github.com/matheus-rech/gtp-realtime-screen-reader
+    branch: main
+    rootDir: apps/backend
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 8080
+      - key: OPENAI_API_KEY
+        sync: false # Set manually in Render dashboard
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: realtime-assistant-redis
+          property: connectionString
+      - key: FRAME_RATE_LIMIT
+        value: 2
+      - key: MAX_SESSIONS
+        value: 100
+      - key: VISUAL_MAX_RESOLUTION
+        value: 1024
+    healthCheckPath: /health
+    numInstances: 1
+    plan: standard # Upgrade to 'pro' for production
+    
+  # Frontend Next.js application
+  - type: static
+    name: realtime-assistant-frontend
+    repo: https://github.com/matheus-rech/gtp-realtime-screen-reader
+    branch: main
+    buildCommand: cd apps/frontend && npm install && npm run build && npm run export
+    staticPublishPath: apps/frontend/out
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+    envVars:
+      - key: NEXT_PUBLIC_BACKEND_URL
+        value: https://realtime-assistant-backend.onrender.com # Update with actual backend URL
+
+  # Redis for session management
+  - type: redis
+    name: realtime-assistant-redis
+    plan: starter # 25MB free tier
+    maxmemoryPolicy: allkeys-lru
