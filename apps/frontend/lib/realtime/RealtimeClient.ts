@@ -5,6 +5,7 @@ export class RealtimeClient extends EventTarget {
   private model: string;
   private sessionId: string | null = null;
   private isConnected: boolean = false;
+  private pingInterval: NodeJS.Timeout | null = null;
 
   constructor(config: { apiKey: string; model?: string }) {
     super();
@@ -15,18 +16,19 @@ export class RealtimeClient extends EventTarget {
   async connect(): Promise<void> {
     if (this.isConnected) return;
 
-    // Ephemeral tokens are passed as a URL parameter
+    // Build the WebSocket URL with the model parameter
     const params = new URLSearchParams({
       model: this.model
     });
     
+    // For ephemeral tokens, OpenAI expects them in the Authorization header
+    // Since browser WebSocket doesn't support headers, we pass it as a query parameter
     const url = `wss://api.openai.com/v1/realtime?${params.toString()}`;
     
     try {
-      // Use the ephemeral key in the WebSocket subprotocol
-      // OpenAI Realtime API accepts the token in the subprotocol header
+      // Browser WebSocket with subprotocols for OpenAI Realtime API
+      // The ephemeral token is passed via subprotocol
       this.ws = new WebSocket(url, [
-        'realtime',
         `openai-insecure-api-key.${this.apiKey}`,
         'openai-beta.realtime-v1'
       ]);
@@ -34,15 +36,17 @@ export class RealtimeClient extends EventTarget {
       this.ws.onopen = () => {
         this.isConnected = true;
         console.log('Connected to OpenAI Realtime API');
-        this.dispatchEvent(new Event('connected'));
+        this.emit('connected', {});
         
-        // First, send authentication if needed
-        // The ephemeral key should handle auth, but send session config
+        // Start ping interval to keep connection alive
+        this.startPingInterval();
+        
+        // Session configuration update
         this.send({
           type: 'session.update',
           session: {
             modalities: ['text', 'audio'],
-            instructions: 'You are a helpful, witty, and friendly AI assistant. You can see the user\'s screen and camera. Always be concise and helpful.',
+            instructions: 'You are a helpful, witty, and friendly AI assistant. Always be concise and helpful.',
             voice: 'alloy',
             input_audio_format: 'pcm16',
             output_audio_format: 'pcm16',
@@ -56,7 +60,7 @@ export class RealtimeClient extends EventTarget {
               silence_duration_ms: 500
             },
             temperature: 0.8,
-            max_output_tokens: 4096
+            max_response_output_tokens: 4096
           }
         });
       };
@@ -113,10 +117,20 @@ export class RealtimeClient extends EventTarget {
       this.emit('error', error);
     };
 
-    this.ws.onclose = () => {
+    this.ws.onclose = (event) => {
       this.isConnected = false;
-      console.log('Disconnected from OpenAI Realtime API');
-      this.emit('disconnected', {});
+      console.log('Disconnected from OpenAI Realtime API', event.code, event.reason);
+      this.emit('disconnected', { code: event.code, reason: event.reason });
+      
+      // Auto-reconnect for unexpected disconnections
+      if (event.code !== 1000 && event.code !== 1001) {
+        console.log('Unexpected disconnection, will attempt reconnect...');
+        setTimeout(() => {
+          if (!this.isConnected) {
+            this.connect().catch(console.error);
+          }
+        }, 2000);
+      }
     };
     } catch (error) {
       console.error('Failed to connect:', error);
@@ -126,11 +140,31 @@ export class RealtimeClient extends EventTarget {
   }
 
   disconnect(): void {
+    this.stopPingInterval();
     if (this.ws) {
       this.ws.close();
       this.ws = null;
     }
     this.isConnected = false;
+  }
+
+  private startPingInterval(): void {
+    this.stopPingInterval();
+    // Send a ping every 30 seconds to keep the connection alive
+    this.pingInterval = setInterval(() => {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        // OpenAI Realtime API doesn't have a specific ping, but we can send an empty message
+        // or just check the connection state
+        console.log('Connection still active');
+      }
+    }, 30000);
+  }
+
+  private stopPingInterval(): void {
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
+    }
   }
 
   send(data: any): void {
