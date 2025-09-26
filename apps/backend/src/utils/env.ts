@@ -4,6 +4,8 @@ type EnvConfig = {
   port: number;
   openAiApiKey: string | undefined;
   openAiRealtimeModel: string;
+  geminiApiKey: string | undefined;
+  geminiModel: string;
   redisUrl: string | undefined;
   frameRateLimit: number;
   maxSessions: number;
@@ -25,6 +27,8 @@ export const env: EnvConfig = {
   port: parseNumber(process.env.PORT, 8080),
   openAiApiKey: process.env.OPENAI_API_KEY,
   openAiRealtimeModel: process.env.OPENAI_REALTIME_MODEL ?? 'gpt-4o-realtime-preview-2024-12-17',
+  geminiApiKey: process.env.GEMINI_API_KEY,
+  geminiModel: process.env.GEMINI_MODEL ?? 'gemini-2.0-flash-exp',
   redisUrl: process.env.REDIS_URL,
   frameRateLimit: parseNumber(process.env.FRAME_RATE_LIMIT, 2),
   maxSessions: parseNumber(process.env.MAX_SESSIONS, 100),

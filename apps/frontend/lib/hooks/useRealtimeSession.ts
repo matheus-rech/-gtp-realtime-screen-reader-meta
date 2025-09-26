@@ -5,13 +5,14 @@ import { AudioController } from '@/lib/audio/AudioController';
 import { VisualProcessor } from '@/lib/visual/VisualProcessor';
 import { appConfig } from '@/lib/config';
 import { RealtimeClient } from '@/lib/realtime/RealtimeClient';
+import { GeminiRealtimeClient } from '@/lib/realtime/GeminiRealtimeClient';
 import type { AssistantMode, ConnectionState, TranscriptMessage, VisualContext } from '@/types/realtime';
 
 export type UseRealtimeSessionResult = {
   connectionState: ConnectionState;
   transcript: TranscriptMessage[];
   visualContexts: VisualContext[];
-  connect: () => Promise<void>;
+  connect: (provider?: 'openai' | 'gemini') => Promise<void>;
   disconnect: () => void;
   sendText: (text: string) => void;
   handleInterrupt: () => void;
@@ -20,6 +21,8 @@ export type UseRealtimeSessionResult = {
   visualActive: boolean;
   latencyMs: number | null;
   previewFrame: string | null;
+  provider: 'openai' | 'gemini';
+  setProvider: (provider: 'openai' | 'gemini') => void;
 };
 
 const buildWebSocketUrl = (baseUrl: string, path: string) => {
@@ -36,6 +39,7 @@ export const useRealtimeSession = (initialMode: AssistantMode): UseRealtimeSessi
   const [visualActive, setVisualActive] = useState(false);
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
   const [previewFrame, setPreviewFrame] = useState<string | null>(null);
+  const [provider, setProviderState] = useState<'openai' | 'gemini'>('openai');
 
   const clientRef = useRef<any | null>(null);
   const visualProcessorRef = useRef<VisualProcessor | null>(null);
@@ -172,12 +176,13 @@ export const useRealtimeSession = (initialMode: AssistantMode): UseRealtimeSessi
     [ensureVisualSocket]
   );
 
-  const initializeRealtimeClient = useCallback(async () => {
+  const initializeRealtimeClient = useCallback(async (selectedProvider?: 'openai' | 'gemini') => {
+    const activeProvider = selectedProvider || provider;
     setConnectionState('connecting');
     const response = await fetch(`${appConfig.backendUrl}/api/session`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode })
+      body: JSON.stringify({ mode, provider: activeProvider })
     });
 
     if (!response.ok) {
@@ -185,9 +190,10 @@ export const useRealtimeSession = (initialMode: AssistantMode): UseRealtimeSessi
     }
 
     const payload = await response.json();
-    const client = new RealtimeClient({
+    const ClientClass = activeProvider === 'gemini' ? GeminiRealtimeClient : RealtimeClient;
+    const client = new ClientClass({
       apiKey: payload.client_secret?.value || payload.client_secret,
-      model: 'gpt-4o-realtime-preview-2024-12-17'
+      model: activeProvider === 'gemini' ? 'gemini-2.0-flash-exp' : 'gpt-4o-realtime-preview-2024-12-17'
     });
 
     attachRealtimeListeners(client);
@@ -216,11 +222,14 @@ export const useRealtimeSession = (initialMode: AssistantMode): UseRealtimeSessi
     audioRef.current = audio;
     await audio.start();
     await startVisualPipeline(mode);
-  }, [attachRealtimeListeners, ensureVisualSocket, mode, startVisualPipeline]);
+  }, [attachRealtimeListeners, ensureVisualSocket, mode, provider, startVisualPipeline]);
 
-  const connect = useCallback(async () => {
+  const connect = useCallback(async (selectedProvider?: 'openai' | 'gemini') => {
     try {
-      await initializeRealtimeClient();
+      if (selectedProvider) {
+        setProviderState(selectedProvider);
+      }
+      await initializeRealtimeClient(selectedProvider);
     } catch (error) {
       console.error(error);
       setConnectionState('error');
@@ -274,6 +283,13 @@ export const useRealtimeSession = (initialMode: AssistantMode): UseRealtimeSessi
     };
   }, [disconnect]);
 
+  const setProvider = useCallback((newProvider: 'openai' | 'gemini') => {
+    setProviderState(newProvider);
+    if (connectionState === 'connected') {
+      disconnect();
+    }
+  }, [connectionState, disconnect]);
+
   return {
     connectionState,
     transcript,
@@ -286,6 +302,8 @@ export const useRealtimeSession = (initialMode: AssistantMode): UseRealtimeSessi
     mode,
     visualActive,
     latencyMs,
-    previewFrame
+    previewFrame,
+    provider,
+    setProvider
   };
 };

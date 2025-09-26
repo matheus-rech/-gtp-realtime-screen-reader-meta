@@ -7,6 +7,7 @@ import VisualContextIndicator from './VisualContextIndicator';
 import ModeSelector from './ModeSelector';
 import ConnectionStatus from './ConnectionStatus';
 import InterruptButton from './InterruptButton';
+import ProviderSelector from './ProviderSelector';
 import { useRealtimeSession } from '@/lib/hooks/useRealtimeSession';
 
 const AssistantApp = () => {
@@ -22,7 +23,9 @@ const AssistantApp = () => {
     visualContexts,
     visualActive,
     latencyMs,
-    previewFrame
+    previewFrame,
+    provider,
+    setProvider
   } = useRealtimeSession('screen');
 
   const [message, setMessage] = useState('');
@@ -49,11 +52,17 @@ const AssistantApp = () => {
         <div>
           <h1 className="text-2xl font-semibold text-slate-100">Realtime Voice + Vision Assistant</h1>
           <p className="text-sm text-slate-400">
-            Powered by OpenAI Realtime API. Speak naturally while the assistant observes your screen or camera.
+            Powered by {provider === 'gemini' ? 'Google Gemini Live API' : 'OpenAI Realtime API'}. Speak naturally while the assistant observes your screen or camera.
           </p>
         </div>
         <div className="flex flex-col items-end gap-2">
           <ConnectionStatus state={connectionState} latencyMs={latencyMs} />
+          <ProviderSelector 
+            provider={provider} 
+            onProviderChange={setProvider}
+            connectionState={connectionState}
+            onReconnect={() => connect(provider)}
+          />
           <ModeSelector mode={mode} onChange={(next) => void setMode(next)} />
         </div>
       </div>

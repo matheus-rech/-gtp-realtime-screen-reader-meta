@@ -7,6 +7,7 @@ type SessionRecord = {
   createdAt: number;
   lastSeen: number;
   mode: 'screen' | 'camera' | 'hybrid';
+  provider?: 'openai' | 'gemini';
 };
 
 export class SessionStore {

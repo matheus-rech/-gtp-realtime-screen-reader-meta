@@ -1,14 +1,17 @@
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { RealtimeSessionManager } from '../services/RealtimeSessionManager.js';
+import { GeminiSessionManager } from '../services/GeminiSessionManager.js';
 import { SessionStore } from '../services/SessionStore.js';
 import { env } from '../utils/env.js';
 
 const sessionSchema = z.object({
-  mode: z.enum(['screen', 'camera', 'hybrid']).default('screen')
+  mode: z.enum(['screen', 'camera', 'hybrid']).default('screen'),
+  provider: z.enum(['openai', 'gemini']).default('openai')
 });
 
-const manager = new RealtimeSessionManager();
+const openaiManager = new RealtimeSessionManager();
+const geminiManager = new GeminiSessionManager();
 const store = new SessionStore();
 
 export const createSessionHandler = async (req: Request, res: Response) => {
@@ -23,8 +26,15 @@ export const createSessionHandler = async (req: Request, res: Response) => {
   }
 
   try {
+    const manager = parsed.data.provider === 'gemini' ? geminiManager : openaiManager;
     const key = await manager.createEphemeralKey();
-    await store.create({ id: key.id, createdAt: Date.now(), lastSeen: Date.now(), mode: parsed.data.mode });
+    await store.create({ 
+      id: key.id, 
+      createdAt: Date.now(), 
+      lastSeen: Date.now(), 
+      mode: parsed.data.mode,
+      provider: parsed.data.provider 
+    });
     return res.json(key);
   } catch (error) {
     return res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
