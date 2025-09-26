@@ -10,6 +10,9 @@ import { errorHandler } from './middleware/errorHandler.js';
 export const createApp = () => {
   const app = express();
 
+  // Trust proxy for Railway deployment
+  app.set('trust proxy', true);
+
   app.use(helmet());
   app.use(cors());
   app.use(express.json({ limit: '2mb' }));
