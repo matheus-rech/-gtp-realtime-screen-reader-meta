@@ -4,41 +4,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AudioController } from '@/lib/audio/AudioController';
 import { VisualProcessor } from '@/lib/visual/VisualProcessor';
 import { appConfig } from '@/lib/config';
+import { RealtimeClient } from '@/lib/realtime/RealtimeClient';
 import type { AssistantMode, ConnectionState, TranscriptMessage, VisualContext } from '@/types/realtime';
-
-// Simple client interface to satisfy the build requirements
-// TODO: Replace with proper OpenAI agents implementation
-class StubRealtimeClient {
-  private listeners: Record<string, Function[]> = {};
-
-  constructor(_config: { apiKey?: string; model?: string }) {
-    // Stub implementation
-  }
-
-  on(event: string, callback: Function) {
-    if (!this.listeners[event]) {
-      this.listeners[event] = [];
-    }
-    this.listeners[event].push(callback);
-  }
-
-  async connect() {
-    // Stub implementation
-    console.warn('Using stub RealtimeClient - replace with proper implementation');
-  }
-
-  disconnect() {
-    // Stub implementation
-  }
-
-  sendRealtime(_data: any) {
-    // Stub implementation
-  }
-
-  sendUserMessageContent(_content: any) {
-    // Stub implementation
-  }
-}
 
 export type UseRealtimeSessionResult = {
   connectionState: ConnectionState;
@@ -121,14 +88,15 @@ export const useRealtimeSession = (initialMode: AssistantMode): UseRealtimeSessi
     if (!client) {
       return;
     }
-    client.on('response.delta', (event: any) => {
-      const { delta } = event;
+    client.on('response.delta', (event: CustomEvent) => {
+      const { delta } = event.detail || event;
       if (delta?.type === 'output_text.delta') {
         pendingTextRef.current = (pendingTextRef.current ?? '') + (delta.text ?? '');
       }
     });
 
-    client.on('response.completed', (event: any) => {
+    client.on('response.completed', (event: CustomEvent) => {
+      const data = event.detail || event;
       if (pendingTextRef.current) {
         setTranscript((messages) => [
           {
@@ -141,13 +109,14 @@ export const useRealtimeSession = (initialMode: AssistantMode): UseRealtimeSessi
         ]);
         pendingTextRef.current = null;
       }
-      if (event?.response?.latency_ms) {
-        setLatencyMs(event.response.latency_ms);
+      if (data?.response?.latency_ms) {
+        setLatencyMs(data.response.latency_ms);
       }
     });
 
-    client.on('conversation.item.created', (event: any) => {
-      const {item} = event;
+    client.on('conversation.item.created', (event: CustomEvent) => {
+      const data = event.detail || event;
+      const {item} = data;
       if (item?.role === 'user' && item?.content?.[0]?.type === 'input_text') {
         setTranscript((messages) => [
           {
@@ -161,7 +130,8 @@ export const useRealtimeSession = (initialMode: AssistantMode): UseRealtimeSessi
       }
     });
 
-    client.on('error', (error: unknown) => {
+    client.on('error', (event: CustomEvent) => {
+      const error = event.detail || event;
       console.error('Realtime client error', error);
       setConnectionState('error');
     });
@@ -215,8 +185,8 @@ export const useRealtimeSession = (initialMode: AssistantMode): UseRealtimeSessi
     }
 
     const payload = await response.json();
-    const client = new StubRealtimeClient({
-      apiKey: payload.client_secret?.value,
+    const client = new RealtimeClient({
+      apiKey: payload.client_secret?.value || payload.client_secret,
       model: 'gpt-4o-realtime-preview-2024-12-17'
     });
 

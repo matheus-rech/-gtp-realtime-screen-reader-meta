@@ -20,16 +20,24 @@ export class RealtimeSessionManager {
 
     for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
       try {
-        const response = await fetch('https://api.openai.com/v1/realtime/sessions', {
+        const response = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${env.openAiApiKey}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            model: env.openAiRealtimeModel,
-            voice: 'marin',
-            instructions: 'You are a multimodal assistant with persistent visual memory.'
+            session: {
+              model: env.openAiRealtimeModel || 'gpt-4o-realtime-preview-2024-12-17',
+              voice: 'alloy',
+              instructions: 'You are a multimodal assistant with persistent visual memory. You can see the user screen and camera.',
+              modalities: ['text', 'audio'],
+              input_audio_format: 'pcm16',
+              output_audio_format: 'pcm16',
+              turn_detection: {
+                type: 'server_vad'
+              }
+            }
           })
         });
 
